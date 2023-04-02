@@ -1,0 +1,89 @@
+import requests
+import schedule
+import time
+from twilio.rest import Client
+
+# substitua os correspondentes
+GOOGLE_MAPS_API_KEY = "google maps api kei"
+TWILIO_ACCOUNT_SID = "conta twilio"
+TWILIO_AUTH_TOKEN = "twilio token"
+TWILIO_PHONE_NUMBER = "twilio numero"
+DESTINATION_PHONE_NUMBER = "seu numero"
+
+# defina as localizações
+LOCATION_1 = "**************"
+LOCATION_2 = "**************"
+
+def travel_time(origin, destination):
+    url = f"https://maps.googleapis.com/maps/api/distancematrix/json?origins={origin}&destinations={destination}&departure_time=now&traffic_model=best_guess&key={GOOGLE_MAPS_API_KEY}"
+    response = requests.get(url)
+    data = response.json()
+
+    if data["status"] == "OK" and data["rows"][0]["elements"][0]["status"] == "OK":
+        duration = data["rows"][0]["elements"][0]["duration_in_traffic"]["value"]
+        return duration / 60
+    else:
+        return None
+
+
+def send_whatsapp_message(message):
+    try:
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        sent_message = client.messages.create(
+            body=message,
+            from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
+            to=f"whatsapp:{DESTINATION_PHONE_NUMBER}"
+        )
+        print(f"Message sent: {sent_message.sid}")
+    except Exception as e:
+        print(f"Error sending message: {e}")
+
+prev_duration_1_to_2 = None
+prev_duration_2_to_1 = None
+
+def send_travel_time_update():
+    global prev_duration_1_to_2, prev_duration_2_to_1
+
+    print("Fetching travel time...")
+
+    duration_1_to_2 = travel_time(LOCATION_1, LOCATION_2)
+    duration_2_to_1 = travel_time(LOCATION_2, LOCATION_1)
+
+    if duration_1_to_2 is not None and duration_2_to_1 is not None:
+        message = f"🚗 Travel time update 🚗\n\n" \
+                  f"📍 {LOCATION_1} to {LOCATION_2}:\n" \
+                  f"⏱️ {duration_1_to_2} minutes"
+
+        if prev_duration_1_to_2 is not None:
+            if duration_1_to_2 > prev_duration_1_to_2:
+                message += f" (⬆️ {duration_1_to_2 - prev_duration_1_to_2} mins)"
+            elif duration_1_to_2 < prev_duration_1_to_2:
+                message += f" (⬇️ {prev_duration_1_to_2 - duration_1_to_2} mins)"
+
+        message += f"\n\n📍 {LOCATION_2} to {LOCATION_1}:\n" \
+                   f"⏱️ {duration_2_to_1} minutes"
+
+        if prev_duration_2_to_1 is not None:
+            if duration_2_to_1 > prev_duration_2_to_1:
+                message += f" (⬆️ {duration_2_to_1 - prev_duration_2_to_1} mins)"
+            elif duration_2_to_1 < prev_duration_2_to_1:
+                message += f" (⬇️ {prev_duration_2_to_1 - duration_2_to_1} mins)"
+
+        prev_duration_1_to_2 = duration_1_to_2
+        prev_duration_2_to_1 = duration_2_to_1
+    else:
+        message = "❌ Unable to calculate travel time. Please check the entered locations and try again."
+
+    print("Sending message via WhatsApp...")
+    send_whatsapp_message(message)
+    print("Message sent.")
+
+
+print("Script started. Sending the first message...")
+send_travel_time_update()
+
+schedule.every(10).minutes.do(send_travel_time_update)
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
